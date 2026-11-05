@@ -1,0 +1,35 @@
+# Data inputs are large and downloadable — do not commit them.
+# data/README.md stays; everything else in data/ is ignored.
+data/*
+!data/README.md
+
+# But DO commit the boundary file if you want the clone to work offline.
+# Uncomment the next two lines if you decide to commit the GeoPackage,
+# and check the size first — generalised is fine, HD is not.
+# !data/sa2_2023_generalised.gpkg
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Generated outputs
+outputs/*.csv
+outputs/*.png
+outputs/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.ipynb_checkpoints/
+.env
+.venv
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

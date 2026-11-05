@@ -1,0 +1,63 @@
+# Mini Project 2 — dependency reference.
+#
+# ---------------------------------------------------------------------------
+# READ THIS FIRST: conda is the supported install route.
+# ---------------------------------------------------------------------------
+#
+# geopandas needs GDAL, GEOS and PROJ underneath. pip wheels for these are built
+# against whatever versions were current when each package was uploaded, so you
+# can end up with a wheel built for one GDAL and a pyproj built for another —
+# and "import geopandas" fails at import time with a version conflict that is
+# genuinely fiddly to unpick.
+#
+# conda-forge solves those three together as a set. So install this way:
+#
+#     conda create -n mp2 -c conda-forge python=3.11 \
+#         geopandas fiona shapely pyproj \
+#         pandas numpy scikit-learn kmodes matplotlib jupyterlab -y
+#     conda activate mp2
+#     python -m ipykernel install --user --name mp2 --display-name "Python (mp2)"
+#
+# The pins below are the versions this project was built and checked against.
+# Conda will resolve to compatible versions itself; use this file as the record
+# of what "known good" means, and if you install with pip instead, run
+# "pip freeze > requirements.lock.txt" and commit that.
+#
+# ---------------------------------------------------------------------------
+# Core analysis
+# ---------------------------------------------------------------------------
+pandas==2.2.3
+numpy==1.26.4
+
+# Modelling — scikit-learn brings in scipy, joblib, threadpoolctl
+scikit-learn==1.5.2
+
+# Clustering with mixed numeric/categorical data (K-Prototypes)
+kmodes==0.12.2
+
+# ---------------------------------------------------------------------------
+# Geospatial — the reason conda is the recommended route
+# ---------------------------------------------------------------------------
+geopandas==1.0.1
+shapely==2.0.6
+pyproj==3.6.1
+fiona==1.10.0
+
+# ---------------------------------------------------------------------------
+# Plotting and notebooks
+# ---------------------------------------------------------------------------
+matplotlib==3.9.2
+jupyterlab==4.2.5
+ipykernel==6.29.5
+
+# ---------------------------------------------------------------------------
+# Optional: spatial weights and spatial autocorrelation.
+#
+# Not required by the notebooks as shipped. Uncomment both if you add the
+# Moran's I analysis suggested in notebook 02 — spatial autocorrelation on the
+# crowding rate is direct evidence for the area-level approach, and it is the
+# geospatial move almost nobody else on the course will make.
+#
+# libpysal==4.12
+# esda==2.6.0
+# ---------------------------------------------------------------------------
