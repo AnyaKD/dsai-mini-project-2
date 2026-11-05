@@ -31,7 +31,7 @@ OUT.mkdir(exist_ok=True)
 HOUSEHOLDS = DATA / "households_by_sa2.csv"
 INDIVIDUALS = DATA / "individuals_by_sa2.csv"
 CONCORDANCE = DATA / "sa2_higher_geographies.csv"
-BOUNDARIES = DATA / "sa2_2023_generalised.gpkg"
+BOUNDARIES = DATA / "statistical-area-2-2023-generalised.shp"
 
 # New Zealand Transverse Mercator — metres. Use this for any area,
 # length or density calculation. Never compute area in EPSG:4326.
@@ -48,8 +48,8 @@ def load_raw(path: Path, **kwargs) -> pd.DataFrame:
     """Read a Stats NZ export. Tries UTF-8 then the common Windows encoding."""
     if not path.exists():
         raise FileNotFoundError(
-            f"{path.name} not found. See data/README.md for what to download "
-            f"and what to call it."
+            f"{path.name} not found in {path.parent}. "
+            f"See data/README.md for what to download and what to call it."
         )
     for enc in ("utf-8-sig", "utf-8", "cp1252"):
         try:
@@ -69,34 +69,43 @@ def snapshot(df: pd.DataFrame, name: str = "dataframe") -> None:
     print()
 
 
-# Stats NZ exports hide blanks as sentinel strings.
-# Note: "Confidential" is suppression, not a zero, and not NaN. Keep the
-# distinction — collapsing it into either one loses information you need.
+# Stats NZ hides blanks as sentinel strings. Note that "Confidential" is
+# suppression, not a zero and not NaN — collapsing it into either one loses
+# information you need.
 NA_TOKENS = {"", "..", "...", "c", "C", "-", "n/a", "N/A", "na", "NA", "null", "Null"}
 SUPPRESSED = {"confidential", "Confidential", "CONFIDENTIAL", "suppressed", "s"}
+
+# The numeric sentinel Stats NZ writes into a suppressed cell of the
+# totals-by-topic tables. In the 2023 households table, 223 of the 261
+# variable columns carry at least one. It is not a count: summing a column
+# that contains it produces a negative total, which is how it announces
+# itself. Treat it as missing.
+SUPPRESSED_SENTINEL = -999
 
 
 def read_measure(series: pd.Series) -> pd.Series:
     """
-    Coerce a Stats NZ measure column to float, keeping suppression visible.
+    Coerce a Stats NZ measure column to float, with suppression as NaN.
 
-    Returns floats where a number exists, and NaN everywhere else. Codes
-    suppression separately with `flag_suppressed` before calling this, if you
-    need to distinguish it.
+    Strips thousands separators and leading/trailing currency and percent
+    marks, maps the string sentinels in NA_TOKENS to NaN, and maps the numeric
+    SUPPRESSED_SENTINEL (-999) to NaN as well. Everything else becomes a float,
+    or NaN where it will not parse.
     """
     s = series.astype(str).str.strip()
     s = s.str.replace(",", "", regex=False)          # thousands separators
     s = s.str.replace(r"^\$", "", regex=True)        # leading $ on money columns
     s = s.str.replace(r"[%]$", "", regex=True)       # trailing %
-    s = s.where(~s.isin(NA_TOKENS))                  # sentinels -> NaN
-    return pd.to_numeric(s, errors="coerce")
+    s = s.where(~s.isin(NA_TOKENS))                  # string sentinels -> NaN
+    out = pd.to_numeric(s, errors="coerce")
+    return out.replace(SUPPRESSED_SENTINEL, np.nan)
 
 
 def flag_suppressed(series: pd.Series) -> pd.Series:
-    """True where a cell is suppressed (marked 'confidential'), not merely blank."""
-    return series.astype(str).str.strip().str.lower().isin(
-        {t.lower() for t in SUPPRESSED}
-    )
+    """True where a cell is suppressed — either sentinel, not merely blank."""
+    s = series.astype(str).str.strip()
+    return (s.str.lower().isin({t.lower() for t in SUPPRESSED})
+            | s.eq(str(SUPPRESSED_SENTINEL)))
 
 
 # --------------------------------------------------------------------------
@@ -110,8 +119,8 @@ def tidy_area_code(series: pd.Series) -> pd.Series:
     """
     Extract a bare numeric area code from a Stats NZ area label.
 
-    Stats NZ writes areas as '1234567 Area Name' or '1234567.0'. This pulls
-    the digits out and zero-pads to 7, matching the boundary file's SA2_code.
+    Stats NZ writes areas as '1234567 Area Name'. This pulls the digits out and
+    zero-pads to 7, matching the boundary file's SA2 code column.
     """
     s = series.astype(str)
     digits = s.str.extract(r"(\d{4,8})", expand=False)
@@ -125,48 +134,16 @@ def tidy_area_name(series: pd.Series) -> pd.Series:
 
 
 # --------------------------------------------------------------------------
-# Assembly
+# Geometry
 # --------------------------------------------------------------------------
-
-def assemble(households: pd.DataFrame, individuals: pd.DataFrame,
-             concordance: pd.DataFrame,
-             year: int = CENSUS_YEAR) -> pd.DataFrame:
-    """
-    Join the three non-spatial inputs into one analysis frame, one row per SA2.
-
-    You will need to adapt the column-name arguments here to whatever your
-    actual exports use — the Explorer renames columns per table. Print the
-    columns of each input first and map them explicitly rather than guessing.
-    """
-    hh = households.copy()
-    ind = individuals.copy()
-    conc = concordance.copy()
-
-    hh["sa2_code"] = tidy_area_code(hh["Year and area"])       # <- adapt
-    ind["sa2_code"] = tidy_area_code(ind["Year and area"])     # <- adapt
-    conc["sa2_code"] = tidy_area_code(conc["SA2_code"])        # <- adapt
-
-    hh = hh[hh["Year and area"].astype(str).str.contains(str(year))]
-    ind = ind[ind["Year and area"].astype(str).str.contains(str(year))]
-
-    frame = hh.merge(
-        ind.drop(columns=[c for c in ind.columns
-                          if c.startswith("Census") or c == "Year and area"]),
-        on="sa2_code", how="inner", validate="one_to_one",
-    )
-    frame = frame.merge(
-        conc[["sa2_code", "SA2_name", "SA3_name",
-              "Territorial_authority_name", "Regional_council_name"]],
-        on="sa2_code", how="left", validate="one_to_one",
-    )
-    return frame
-
 
 def attach_geometry(frame: pd.DataFrame,
                     boundaries_path: Path = BOUNDARIES,
-                    code_column: str = "SA2_code") -> "pd.DataFrame":
+                    left_on: str = "sa2_code",
+                    right_on: str = "SA22023_V1_00") -> "pd.DataFrame":
     """
-    Attach SA2 polygons, project to NZTM, and compute area and density.
+    Attach SA2 polygons from the Stats NZ generalised shapefile, project to
+    NZTM, and compute area and density.
 
     Requires geopandas. Returns a GeoDataFrame in EPSG:2193.
 
@@ -190,16 +167,22 @@ def attach_geometry(frame: pd.DataFrame,
 
     gdf["area_km2"] = gdf.geometry.area / 1e6
 
-    gdf["sa2_code"] = tidy_area_code(gdf[code_column])
+    if right_on in gdf.columns:
+        gdf["sa2_code"] = tidy_area_code(gdf[right_on])
+    elif "sa2_code" not in gdf.columns:
+        raise KeyError(
+            f"Neither {right_on!r} nor 'sa2_code' is in the boundary file. "
+            f"Columns present: {list(gdf.columns)[:12]}"
+        )
+
     out = gdf[["sa2_code", "area_km2", "geometry"]].merge(
-        frame, on="sa2_code", how="inner", validate="one_to_one",
+        frame.drop(columns=[c for c in ("area_km2", "geometry") if c in frame.columns]),
+        on=left_on, how="inner", validate="one_to_one",
     )
     out = gpd.GeoDataFrame(out, geometry="geometry", crs=gdf.crs)
 
     if "usual_residents" in out.columns:
-        out["density_per_km2"] = np.where(
-            out["area_km2"] > 0, out["usual_residents"] / out["area_km2"], np.nan
-        )
+        out["density_per_km2"] = out["usual_residents"] / out["area_km2"].replace(0, np.nan)
         print("Computed density_per_km2 from usual_residents.")
 
     print(f"Analysis frame: {len(out):,} SA2s with geometry.")
@@ -228,13 +211,13 @@ def suppression_report(df: pd.DataFrame, columns: list[str] | None = None) -> pd
             "n_unique": int(df[c].nunique(dropna=True)),
         })
     out = pd.DataFrame(rows).sort_values("missing_pct", ascending=False)
-    print(f"{len(out)} columns have missing values; "
-          f"{len(out[out.missing_pct > 0])} of them are worth a look.")
+    print(f"{len(out)} columns inspected; "
+          f"{int((out['missing_pct'] > 0).sum())} carry suppression.")
     return out
 
 
 def suppressed_share(df: pd.DataFrame) -> pd.Series:
-    """Share of values in each row that are suppressed or missing."""
+    """Share of each row's numeric values that are suppressed or missing."""
     numeric = df.select_dtypes(include=[np.number])
     if numeric.empty:
         return pd.Series(dtype=float)
@@ -257,9 +240,9 @@ def split_features(df: pd.DataFrame, target: str,
     justify in the README.
     """
     leaky = drop or []
-    id_cols = {"sa2_code", "SA2_name", "SA3_name",
+    id_cols = {"sa2_code", "sa2_name", "SA2_name", "SA3_name",
                "Territorial_authority_name", "Regional_council_name",
-               "geometry", "cluster", "cluster_kproto"}
+               "geometry", "cluster", "cluster_kproto", "suppressed_n"}
 
     X = df.drop(columns=[c for c in [target, *leaky] if c in df.columns])
     X = X.drop(columns=[c for c in id_cols if c in X.columns])
@@ -274,8 +257,8 @@ def make_preprocessor(num_cols: list[str], cat_cols: list[str]):
     """
     ColumnTransformer: median-impute and scale numerics, one-hot categoricals.
 
-    Median imputation is a defensible default for suppressed counts, but say
-    in the README that you chose it and why.
+    Median imputation is a defensible default for suppressed counts, but say in
+    the README that you chose it and why.
     """
     from sklearn.compose import ColumnTransformer
     from sklearn.impute import SimpleImputer
@@ -303,8 +286,8 @@ def make_preprocessor(num_cols: list[str], cat_cols: list[str]):
 def cluster_diagnostics(X_scaled: np.ndarray, k_range=range(2, 13),
                         seed: int = 42) -> pd.DataFrame:
     """
-    Elbow (inertia) and silhouette across k. The scatter in silhouette is
-    often more useful than the argmax — read it, do not just take the max.
+    Elbow (inertia) and silhouette across k. The scatter in silhouette is often
+    more useful than the argmax — read it, do not just take the maximum.
     """
     from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
@@ -380,20 +363,19 @@ def evaluate(model, X_test, y_test, threshold: float = 0.5) -> dict:
     """
     Recall and PR-AUC on the positive class, which is the costly error here.
 
-    PR-AUC rather than ROC-AUC because the positive class is the minority;
-    ROC flatters a rare-class model. Accuracy is reported but is not the
-    decision metric — the base rate is printed alongside it so the reader can
-    see what 'predicting the majority class' would already score.
+    PR-AUC rather than ROC-AUC because the positive class is the minority; ROC
+    flatters a rare-class model. Accuracy is reported but is not the decision
+    metric — the base rate is printed beside it so the reader can see what
+    'predicting the majority class' would already score.
     """
     from sklearn.metrics import (
         accuracy_score, average_precision_score, confusion_matrix,
         f1_score, precision_score, recall_score, roc_auc_score,
     )
 
-    if hasattr(model, "predict_proba"):
-        proba = model.predict_proba(X_test)[:, 1]
-    else:
-        proba = model.decision_function(X_test)
+    proba = (model.predict_proba(X_test)[:, 1]
+             if hasattr(model, "predict_proba")
+             else model.decision_function(X_test))
     pred = (proba >= threshold).astype(int)
 
     cm = confusion_matrix(y_test, pred)
@@ -415,6 +397,5 @@ def positive_rate_report(y: pd.Series, target_name: str = "target") -> None:
     rate = float(np.mean(y))
     print(f"{target_name}: positive class = {rate:.2%} "
           f"({int(y.sum()):,} of {len(y):,})")
-    print(f"A model that predicts the majority class every time scores "
-          f"{max(rate, 1 - rate):.2%} accuracy and 0.00 recall on the "
-          f"minority class.")
+    print(f"Predicting the majority class every time scores "
+          f"{max(rate, 1 - rate):.2%} accuracy and 0.00 recall on the minority.")
