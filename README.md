@@ -1,7 +1,7 @@
 # Can a small area's profile predict how crowded its households are?
 
 **Mini Project 2** — Data Science & AI course
-*[Your name] · [your GitHub handle] · [Month Year]*
+*Anya Duxfield · github - AnyaKD · November 2026*
 
 ---
 
