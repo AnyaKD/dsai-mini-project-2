@@ -69,43 +69,107 @@ def snapshot(df: pd.DataFrame, name: str = "dataframe") -> None:
     print()
 
 
-# Stats NZ hides blanks as sentinel strings. Note that "Confidential" is
-# suppression, not a zero and not NaN — collapsing it into either one loses
-# information you need.
-NA_TOKENS = {"", "..", "...", "c", "C", "-", "n/a", "N/A", "na", "NA", "null", "Null"}
-SUPPRESSED = {"confidential", "Confidential", "CONFIDENTIAL", "suppressed", "s"}
+# --------------------------------------------------------------------------
+# Suppression and sentinels
+# --------------------------------------------------------------------------
 
-# The numeric sentinel Stats NZ writes into a suppressed cell of the
-# totals-by-topic tables. In the 2023 households table, 223 of the 261
-# variable columns carry at least one. It is not a count: summing a column
-# that contains it produces a negative total, which is how it announces
-# itself. Treat it as missing.
-SUPPRESSED_SENTINEL = -999
+# Stats NZ hides blanks as sentinel strings. These are genuinely absent.
+NA_TOKENS = {"", "..", "...", "-", "n/a", "N/A", "na", "NA",
+             "null", "Null", "null."}
+
+# These mean the same thing to a model — the value is not available — but
+# they are NOT the same as blank: a cell is suppressed because the underlying
+# count is small enough to identify someone, and a category is non-applicable
+# because the question was not asked for that table. Neither is a zero.
+# Collapsing suppression into 0 or into a plain blank loses the distinction
+# you need for the limitation section of the README.
+SUPPRESSED_TOKENS = {"confidential", "suppressed", "s", "c"}
+
+# The numeric sentinels Stats NZ writes into the totals-by-topic tables:
+#
+#   -999  suppressed (fixed random rounding hides the real count)
+#   -997  category not collected, or not applicable to that table
+#
+# Neither is a count. Summing a column that contains one produces a negative
+# total, which is how -999 announces itself. -997 is worse: it makes an
+# all-sentinel column look complete, because it is never blank and a
+# missing-value count returns zero.
+#
+# The mask is `<= -990` rather than `== -999` so a sibling sentinel is caught
+# without anyone having to enumerate the values first. This is the rule
+# notebook 02 arrived at during EDA, after notebook 01 had reconciled the
+# crowding block and found a negative total.
+SENTINEL_FLOOR = -990
 
 
 def read_measure(series: pd.Series) -> pd.Series:
     """
     Coerce a Stats NZ measure column to float, with suppression as NaN.
 
-    Strips thousands separators and leading/trailing currency and percent
-    marks, maps the string sentinels in NA_TOKENS to NaN, and maps the numeric
-    SUPPRESSED_SENTINEL (-999) to NaN as well. Everything else becomes a float,
-    or NaN where it will not parse.
+    Strips thousands separators and leading or trailing currency and percent
+    marks, maps the string sentinels in NA_TOKENS to NaN, then masks every
+    numeric sentinel at or below SENTINEL_FLOOR. Everything else becomes a
+    float, or NaN where it will not parse.
+
+    Always returns float64 — never object dtype. Returning object is what
+    made a `describe()` print unique/top/freq and turned a `quantile(0.75)`
+    into a number that only looked correct at four decimal places.
     """
     s = series.astype(str).str.strip()
-    s = s.str.replace(",", "", regex=False)          # thousands separators
-    s = s.str.replace(r"^\$", "", regex=True)        # leading $ on money columns
-    s = s.str.replace(r"[%]$", "", regex=True)       # trailing %
-    s = s.where(~s.isin(NA_TOKENS))                  # string sentinels -> NaN
+
+    # Strip the formatting Stats NZ puts on measured values.
+    s = s.str.replace(",", "", regex=False)            # thousands separators
+    s = s.str.replace(r"^\$", "", regex=True)          # leading $ on money columns
+    s = s.str.replace(r"%$", "", regex=True)           # trailing %
+
+    # String sentinels -> NaN. Case-insensitive, so "c" and "C" both land.
+    lower = s.str.lower()
+    s = s.mask(lower.isin({t.lower() for t in NA_TOKENS})
+               | lower.isin(SUPPRESSED_TOKENS))
+
     out = pd.to_numeric(s, errors="coerce")
-    return out.replace(SUPPRESSED_SENTINEL, np.nan)
+
+    # Numeric sentinels -> NaN. One rule, so -997, -999 and any sibling are
+    # handled together.
+    out = out.mask(out <= SENTINEL_FLOOR)
+
+    return out.astype("float64")
 
 
 def flag_suppressed(series: pd.Series) -> pd.Series:
-    """True where a cell is suppressed — either sentinel, not merely blank."""
+    """
+    True where a cell is suppressed or non-applicable — either numeric
+    sentinel, or a confidentiality token. Not merely blank.
+
+    Kept separate from read_measure so the count of suppressed cells can be
+    reported even after the values themselves have become NaN. The README
+    needs that count: suppression is not missing-at-random.
+    """
     s = series.astype(str).str.strip()
-    return (s.str.lower().isin({t.lower() for t in SUPPRESSED})
-            | s.eq(str(SUPPRESSED_SENTINEL)))
+    lower = s.str.lower()
+    numeric = pd.to_numeric(s, errors="coerce")
+    return (lower.isin({t.lower() for t in SUPPRESSED_TOKENS})
+            | lower.isin({"..", "...", "-"})
+            | numeric.le(SENTINEL_FLOOR))
+
+
+def assert_no_sentinels(df: pd.DataFrame, columns: list[str] | None = None) -> None:
+    """
+    Fail loudly if any numeric sentinel survived into an analysis frame.
+
+    Run this on any frame loaded back from CSV. It is the regression test for
+    the -997 bug: a contaminated frame should stop the notebook here, not
+    produce a plausible-looking model three notebooks later.
+    """
+    cols = columns or df.select_dtypes(include=[np.number]).columns.tolist()
+    n = int((df[cols] <= SENTINEL_FLOOR).sum().sum())
+    if n:
+        offenders = [c for c in cols if (df[c] <= SENTINEL_FLOOR).any()]
+        raise ValueError(
+            f"{n} sentinel value(s) survived at or below {SENTINEL_FLOOR}, "
+            f"in {len(offenders)} column(s): {offenders[:10]}"
+        )
+    print(f"No sentinels at or below {SENTINEL_FLOOR} in {len(cols)} numeric columns.")
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +211,7 @@ def attach_geometry(frame: pd.DataFrame,
 
     Requires geopandas. Returns a GeoDataFrame in EPSG:2193.
 
-    The 16 SA2s with no digitised geometry are dropped here, and the count is
+    The SA2s with no digitised geometry are dropped here, and the count is
     printed — do not let them through silently.
     """
     import geopandas as gpd
@@ -224,6 +288,33 @@ def suppressed_share(df: pd.DataFrame) -> pd.Series:
     return numeric.isna().mean(axis=1)
 
 
+def suppression_by_size(df: pd.DataFrame,
+                        size_col: str = "crowding_base") -> pd.DataFrame:
+    """
+    Cross-tabulate suppression against area size.
+
+    This is the number the README limitation needs: if missingness rises as
+    the area shrinks, the model is trained on the large areas and the small
+    ones are the ones it cannot see.
+    """
+    if size_col not in df.columns:
+        raise KeyError(f"{size_col!r} not in the frame; cannot size the bias.")
+
+    share = suppressed_share(df)
+    bins = pd.cut(df[size_col],
+                  bins=[-0.1, 19.5, 49.5, 99.5, 249.5, np.inf],
+                  labels=["<20", "20-49", "50-99", "100-249", "250+"])
+    out = (pd.DataFrame({"size_band": bins, "suppressed_share": share,
+                         "has_rate": df["crowding_rate"].notna()
+                         if "crowding_rate" in df.columns else True})
+           .groupby("size_band", observed=True)
+           .agg(sa2s=("suppressed_share", "size"),
+                mean_suppressed_share=("suppressed_share", "mean")))
+    out["mean_suppressed_share"] = out["mean_suppressed_share"].round(3)
+    print(out.to_string())
+    return out
+
+
 # --------------------------------------------------------------------------
 # Feature frames
 # --------------------------------------------------------------------------
@@ -258,7 +349,9 @@ def make_preprocessor(num_cols: list[str], cat_cols: list[str]):
     ColumnTransformer: median-impute and scale numerics, one-hot categoricals.
 
     Median imputation is a defensible default for suppressed counts, but say in
-    the README that you chose it and why.
+    the README that you chose it and why — and say which columns carry the
+    most suppression, since imputing the median into a heavily suppressed
+    column is closer to inventing a value than to filling a gap.
     """
     from sklearn.compose import ColumnTransformer
     from sklearn.impute import SimpleImputer
@@ -316,7 +409,8 @@ def compare_to_admin(df: pd.DataFrame, cluster_col: str, admin_col: str) -> dict
     ARI and AMI between a data-driven clustering and an administrative geography.
 
     This is the quantitative answer to 'do natural groupings beat the drawn
-    ones?' — and the number the README reports.
+    ones?' — and the number the README reports. A null result is a
+    deliverable here, so report it however it comes out.
     """
     from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 
