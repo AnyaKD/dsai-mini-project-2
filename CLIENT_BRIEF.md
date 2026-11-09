@@ -65,7 +65,7 @@ has to reason with.
 
 ## The individuals
 
-*[Fictional — fill in or replace.]*
+*[Fictional .]*
 
 - **Hine Ngata** — Senior Analyst, Housing Supply & Evidence, Kāinga Ora.
   Commissioned the work. Wants defensible numbers she can put in front of a
