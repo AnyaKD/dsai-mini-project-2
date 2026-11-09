@@ -1,7 +1,6 @@
 # Client brief
 
-*[Fictional — for coursework only. Replace the names with real ones only if you
-have a real client.]*
+*[Fictional — for coursework only. R]*
 
 ---
 
