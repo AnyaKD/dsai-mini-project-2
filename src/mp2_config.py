@@ -20,9 +20,9 @@ OUT = Path(__file__).resolve().parent.parent / "outputs"
 # --- the exact file names, as they are on disk ----------------------
 # These are the long names the Stats NZ download gives them. 
 HOUSEHOLDS = DATA / "2023-census-totals-by-topic-for-households-by-statistical-ar.csv"
-INDIVIDUALS = DATA / "2023-census-totals-by-topic-for-individuals-by-statistical-a.csv"
+INDIVIDUALS = DATA / "2023-census-totals-by-topic-for-individuals-by-statistical-a.csv" # Not used
 LOOKUP_HOUSEHOLDS = DATA / "2023_census_totals_by_topic_for_households_by_sa2_lookup_table.csv"
-LOOKUP_INDIVIDUALS = DATA / "2023_census_totals_by_topic_for_individuals_by_sa2_part_1_lookup_table.csv"
+LOOKUP_INDIVIDUALS = DATA / "2023_census_totals_by_topic_for_individuals_by_sa2_part_1_lookup_table.csv" # Not used.
 BOUNDARIES = DATA / "statistical-area-2-2023-generalised.shp"
 
 # --- the sentinel Stats NZ writes into a suppressed cell -----------------

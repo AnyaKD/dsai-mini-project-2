@@ -1,17 +1,14 @@
 # Inputs
 
-Four files. Put them here with these exact names, then notebook 01 will run.
-Nothing in this folder is committed except this README — see `.gitignore`.
+Place the expected source files in this folder using the exact filenames/patterns below so Notebooks `01` and `03` can run from raw inputs. Nothing in this directory is committed to Git except this `README.md` (see `.gitignore`).
+Provided to Google Classroom upload for MiniProject 2 a zipped folder that is all the data for this project.
+## 1. `2023-census-totals-by-topic-for-households-by-statistical-ar.csv`
 
-## 1. `households_by_sa2.csv`
+**Source:** [Aotearoa Data Explorer](https://datafinder.stats.govt.nz/layer/120892-2023-census-totals-by-topic-for-households-by-statistical-area-2/) → 2023 Census → Families and households / Housing → totals by topic for households by SA2.
 
-**Source:** [Aotearoa Data Explorer](https://explore.data.stats.govt.nz/) → 2023 Census
-→ Families and households / Housing → totals by topic for households by SA2.
+**Want:** All SA2s exported as CSV (including household crowding, housing, income, and rent variables used in the project).
 
-**Want:** 2013, 2018 and 2023 rows, all SA2s, export as CSV.
-
-Variables to include (level 1 of each classification unless noted):
-
+Key variables included:
 - Count of households in occupied private dwellings
 - Household crowding index (levels 1 and 2)
 - Household composition
@@ -23,54 +20,34 @@ Variables to include (level 1 of each classification unless noted):
 - Access to telecommunication systems
 - Number of usual residents, and average number of usual residents
 
-## 2. `individuals_by_sa2.csv`
+## 2. `2023_census_totals_by_topic_for-households_by_sa2_lookup_table.csv`
 
-**Source:** same Explorer, totals by topic for individuals by SA2.
+**Source:** Stats NZ — 2023 Census household topic SA2 lookup table (matching the SA2 household totals dataset).
 
-- Census usually resident population count
-- Age (5-year groups) and age (life cycle groups), plus median age
-- Total personal income age 15+, and median personal income age 15+
-- Labour force status
-- Highest qualification
-- Study participation
-- Field of study
-- Main means of travel to work
+Used to map and validate SA2 codes/labels alongside the household topic table.
 
-## 3. `sa2_higher_geographies.csv`
+## 3. `statistical-area-2-2023-generalised.shp` *(and sidecar files: `.shx`, `.dbf`, `.prj`, `.cpg`)*
 
-**Source:** [Datafinder](https://datafinder.stats.govt.nz/) — "Statistical Area 2
-Higher Geographies" (concordance) for the matching year.
+**Source:** [Stats NZ Datafinder — Statistical Area 2 (2023 Generalised)](https://datafinder.stats.govt.nz/layer/111194-territorial-authority-2023-generalised/) (clipped would have been a better choice as Auckland is a Unitary Authority and therefore includes near shore waters in it boundary).
 
-One row per SA2, giving SA2 code and name plus SA3, territorial authority and
-regional council. Keep the CSV even though you also have the boundary file — a
-plain join table is easier to debug than a spatial join.
+Use **generalised** boundaries rather than high-definition files to keep file sizes manageable and spatial operations fast at national SA2 scale.
 
-## 4. `sa2_2023_generalised.gpkg`
+## 4. `territorial-authority-2023-generalised.shp` *(and sidecar files: `.shx`, `.dbf`, `.prj`, `.cpg`)*
 
-**Source:** [Datafinder layer 111227](https://datafinder.stats.govt.nz/layer/111227-statistical-area-2-2023-generalised/)
-— SA2 2023 (generalised). Download as GeoPackage.
+**Source:** [Territorial Authority 2023 (generalised)](https://datafinder.stats.govt.nz/layer/111194-territorial-authority-2023-generalised/) 
+(clipped would have been a better choice.) 
 
-Use **generalised**, not high-definition: the HD file is very large and the extra
-precision changes nothing at this scale. 2,395 SA2s, of which 16 have empty or
-null geometry — notebook 01 drops those explicitly and says so.
+Used in Notebook `03` (`sorted(DATA.glob("*territorial-authority*.shp"))`) to resolve `ta_name` for SA2s and evaluate cluster alignment against territorial authorities (note: regional council is not included in the input frame).
 
-## Reproducing the download
+## Reproducing the Download
 
-*[Replace with your actual click path and access date. A reader must be able to
-get byte-identical inputs — or at least know why they might not.]*
+1. Open [Aotearoa Data Explorer](https://explore.data.stats.govt.nz/) and select **2023 Census** household topic data by Statistical Area 2, exporting as CSV (`2023-census-totals-by-topic-for-households-by-statistical-ar.csv`) along with the matching SA2 lookup table (`2023_census_totals_by_topic_for-households_by_sa2_lookup_table.csv`).
+2. Download the **Statistical Area 2 (2023 Generalised)** boundary layer (`statistical-area-2-2023-generalised.shp` and sidecar files) from Stats NZ Datafinder.
+3. Download the **Territorial Authority** boundary shapefile (`*territorial-authority*.shp` and sidecar files) from Stats NZ Datafinder.
+4. Place all files in this folder (`DATA`) before running Notebooks `01`–`04`. *(Pre-computed outputs in `outputs/` allow `05_conclusions.ipynb` to run even when raw inputs are absent.)*
 
-Example to adapt:
+**Accessed:** [Insert access date, e.g., November 2026].
 
-1. Go to Aotearoa Data Explorer, filter to 2023 Census.
-2. Search the table title, open it, set geography = Statistical area 2.
-3. Export → CSV. Save as `households_by_sa2.csv` here.
-4. Repeat for individuals.
-5. Datafinder → search "Statistical Area 2 Higher Geographies" → download CSV.
-6. Datafinder → layer 111227 → download GeoPackage (generalised).
+## Licence & Attribution
 
-**Accessed:** [date].
-
-## A note on the licence
-
-Everything above is **CC BY 4.0**, Statistics New Zealand. Reuse is allowed with
-credit — state it in the top-level README, which this project does.
+Underlying datasets and geographic boundaries are sourced from **Statistics New Zealand (Stats NZ)** under **CC BY 4.0**. Reuse is permitted with appropriate attribution, as noted in the root `README.md`.
