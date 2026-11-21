@@ -1,0 +1,4 @@
+model,recall_pos,recall_sd,pr_auc,roc_auc,accuracy
+logistic,0.8694,0.0202,0.8693,0.9473,0.8954
+forest,0.8136,0.0318,0.8579,0.9319,0.8645
+knn,0.6899,0.0559,0.799,0.9155,0.8779

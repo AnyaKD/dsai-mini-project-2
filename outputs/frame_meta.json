@@ -1,0 +1,16 @@
+{
+  "year": 2023,
+  "n_sa2": 2395,
+  "source": "Stats NZ 2023 Census totals by topic for households, by SA2",
+  "licence": "CC BY 4.0, Statistics New Zealand",
+  "crowding_definition": "one or more bedrooms needed (crowded)",
+  "crowding_denominator": "total stated, excludes not stated",
+  "target": "crowded_top_quartile",
+  "top_quartile_threshold": 0.07746478873239436,
+  "sa2_with_rate": 2283,
+  "sa2_without_rate": 112,
+  "positive_class": 572,
+  "base_rate": 0.250548,
+  "suppressed_cells": 50170,
+  "sentinel_floor": -990
+}

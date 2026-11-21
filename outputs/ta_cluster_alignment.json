@@ -1,0 +1,9 @@
+{
+  "n_evaluated": 2379,
+  "n_total": 2395,
+  "n_tas": 68,
+  "n_clusters": 5,
+  "ari_vs_ta": 0.10069606944942168,
+  "nmi_vs_ta": 0.1755241910091316,
+  "regional_council_present": false
+}
